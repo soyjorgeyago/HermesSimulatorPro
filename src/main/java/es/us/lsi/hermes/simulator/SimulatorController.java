@@ -17,6 +17,7 @@ import es.us.lsi.hermes.google.directions.Route;
 import es.us.lsi.hermes.location.LocationLog;
 import es.us.lsi.hermes.openStreetMap.PositionSimulatedSpeed;
 import es.us.lsi.hermes.person.Person;
+import es.us.lsi.hermes.simulator.kafka.Kafka;
 import es.us.lsi.hermes.util.Constants;
 import es.us.lsi.hermes.util.Email;
 import es.us.lsi.hermes.util.HermesException;
@@ -38,6 +39,7 @@ import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.Random;
 import java.util.ResourceBundle;
 import java.util.concurrent.Callable;
@@ -66,6 +68,7 @@ import net.lingala.zip4j.model.ZipParameters;
 import net.lingala.zip4j.util.Zip4jConstants;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang.time.DurationFormatUtils;
+import org.apache.kafka.clients.producer.KafkaProducer;
 import org.joda.time.LocalTime;
 import org.primefaces.context.RequestContext;
 import org.primefaces.event.CloseEvent;
@@ -238,6 +241,11 @@ public class SimulatorController implements Serializable, ISimulatorControllerOb
 
     private static int retries = 5;
 
+    // Kafka
+    private static AtomicLong kafkaRecordId;
+    private static volatile KafkaProducer<Long, String> kafkaProducer;
+    private static Properties kafkaProperties;
+
     public SimulatorController() {
     }
 
@@ -269,6 +277,8 @@ public class SimulatorController implements Serializable, ISimulatorControllerOb
         // TODO: Probar otros timeouts más altos.
 //        surroundingVehiclesConsumer = new SurroundingVehiclesConsumer(this);
         markersToRemove = new ArrayList<>();
+        kafkaRecordId = new AtomicLong(0);
+        kafkaProperties = Kafka.getKafkaProducerProperties();
     }
 
     private void initThreadPool() {
@@ -292,6 +302,8 @@ public class SimulatorController implements Serializable, ISimulatorControllerOb
         if (NoGuiScheduledSimulation.getDriversByPath() != null) {
             setSimulatedSmartDrivers(NoGuiScheduledSimulation.getDriversByPath());
         }
+        // Tiene que haber una coherencia entre trayectos y conductores, para no saturar el sistema.
+        relatePathsAndSmartDrivers(pathsAmount);
         if (NoGuiScheduledSimulation.getPathsGenerationMethod() != null) {
             setPathsGenerationMethod(NoGuiScheduledSimulation.getPathsGenerationMethod());
         }
@@ -837,11 +849,15 @@ public class SimulatorController implements Serializable, ISimulatorControllerOb
     }
 
     public void onSlideEndPathsAmount(SlideEndEvent event) {
-        maxSmartDrivers = MAX_THREADS / event.getValue();
+        relatePathsAndSmartDrivers(event.getValue());
+        configChanged();
+    }
+
+    private void relatePathsAndSmartDrivers(int pathAmount) {
+        maxSmartDrivers = MAX_THREADS / pathAmount;
         if (simulatedSmartDrivers > maxSmartDrivers) {
             simulatedSmartDrivers = maxSmartDrivers;
         }
-        configChanged();
     }
 
     public int getMaxSmartDrivers() {
@@ -1029,6 +1045,7 @@ public class SimulatorController implements Serializable, ISimulatorControllerOb
 
     private void executeSimulation() {
         currentState = State.SIMULATING;
+        kafkaProducer = new KafkaProducer<>(kafkaProperties);
         resetSimulation();
         createTempFolder();
         startSimulationTime = System.currentTimeMillis();
@@ -1050,7 +1067,7 @@ public class SimulatorController implements Serializable, ISimulatorControllerOb
                 // Para el caso del modo de inicio LINEAL, si hay más de 10 SmartDrivers, se toma el 10% para repartir su inicio durante 50 segundos.
                 int smartDriversBunch = simulatedSmartDrivers > 10 ? (int) (simulatedSmartDrivers * 0.10) : 1;
 
-                LOG.log(Level.INFO, "executeSimulation() - Se inicia la monitorización de estados del simulador");
+                LOG.log(Level.INFO, "executeSimulation() - Cada 5 segundos, se iniciarán {0} SmartDrivers en el trayecto {1}", new Object[]{smartDriversBunch, i});
                 initSimulatedSmartDriver(id, smartDriverPosition.getMarkerTitle(), ll, latLng, smartDriversBunch);
                 id++;
                 startStatusMonitorTimer();
@@ -1061,7 +1078,7 @@ public class SimulatorController implements Serializable, ISimulatorControllerOb
                 }
             }
 
-            LOG.log(Level.INFO, "executeSimulation() - Se activa el sistema de parada de emergencia, si la duraci\u00f3n es mayor a: {0}", DurationFormatUtils.formatDuration(MAX_SIMULATION_TIME, "HH:mm:ss", true));
+            LOG.log(Level.INFO, "executeSimulation() - Se activa el sistema de parada de emergencia, si la duración es mayor a: {0}", DurationFormatUtils.formatDuration(MAX_SIMULATION_TIME, "HH:mm:ss", true));
             startShutdownTimer();
         } catch (Exception ex) {
             LOG.log(Level.SEVERE, "executeSimulation() - Ha ocurrido un problema al crear los hilos de ejecución. Se cancela la simulación", ex);
@@ -1251,6 +1268,10 @@ public class SimulatorController implements Serializable, ISimulatorControllerOb
                 streamServer = Stream_Server.values()[(streamServer.ordinal() - 1) % 2];
                 LOG.log(Level.INFO, "finishSimulation() - La siguiente simulación será a las: {0}", Constants.dfISO8601.format(scheduledDate));
                 scheduledSimulation();
+            }
+
+            if (kafkaProducer != null) {
+                kafkaProducer.close();
             }
         }
     }
@@ -1597,6 +1618,14 @@ public class SimulatorController implements Serializable, ISimulatorControllerOb
 
     public void setRetries(int r) {
         retries = r;
+    }
+
+    public static long getNextKafkaRecordId() {
+        return kafkaRecordId.getAndIncrement();
+    }
+
+    public static synchronized KafkaProducer<Long, String> getKafkaProducer() {
+        return kafkaProducer;
     }
 
     class EmergencyShutdown implements Runnable {
