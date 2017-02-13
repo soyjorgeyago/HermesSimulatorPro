@@ -45,3 +45,24 @@ $RECYCLE.BIN/
 Network Trash Folder
 Temporary Items
 .apdisk
+
+# NetBeans specific
+nbproject
+.nbproject
+.nbproject/*
+nbproject/*
+nbproject/private/
+build/
+nbbuild/
+dist/
+nbdist/
+nbactions.xml
+nb-configuration.xml
+build.xml
+manifest.mf
+target/
+faces-config.NavData
+src/main/resources/Email.properties
+src/main/resources/KafkaProducer.properties
+src/main/resources/KafkaConsumer.properties
+src/main/resources/NoGuiScheduledSimulation.properties
