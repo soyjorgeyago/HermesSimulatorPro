@@ -24,7 +24,6 @@ import java.util.Arrays;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Properties;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -34,7 +33,6 @@ import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.lang.time.DurationFormatUtils;
 import org.apache.commons.math3.stat.descriptive.DescriptiveStatistics;
 import org.apache.kafka.clients.producer.Callback;
-import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.clients.producer.RecordMetadata;
 import org.primefaces.model.map.Circle;
@@ -942,7 +940,8 @@ public class SimulatedSmartDriver implements Runnable, ISimulatedSmartDriverObse
                 File statusFile = new File(SimulatorController.getTempFolder().toUri().getPath(), statusFileNameCSV);
                 createStatusDataFile(CsvPreference.EXCEL_NORTH_EUROPE_PREFERENCE, false, statusFile);
             }
-            Thread.currentThread().interrupt();
+//            Thread.currentThread().interrupt();
+            return;
         }
     }
 
