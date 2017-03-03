@@ -122,10 +122,10 @@
                                 <p:selectBooleanCheckbox value="#{simulatorController.randomizeEachSmartDriverBehaviour}" itemLabel="#{bundle.RandomizeEachSmartDriver}" style="font-weight:bold" disabled="#{simulatorController.isConfigLock()}"/>
 
                                 <p:outputLabel value="#{bundle.PathsGenerationMethod}" for="pathsGenerationMethod" style="font-weight:bold"/>
-                                <h:selectOneMenu id="pathsGenerationMethod" value="#{simulatorController.pathsGenerationMethod}" disabled="#{simulatorController.isConfigLock()}">
+                                <p:selectOneMenu id="pathsGenerationMethod" value="#{simulatorController.pathsGenerationMethod}" disabled="#{simulatorController.isConfigLock()}">
                                     <f:selectItem itemValue="0" itemLabel="Google Maps"/>
                                     <f:selectItem itemValue="1" itemLabel="OpenStreetMap"/>
-                                </h:selectOneMenu>
+                                </p:selectOneMenu>
 
                                 <p:selectBooleanCheckbox value="#{simulatorController.interpolate}" itemLabel="#{bundle.Interpolate}" style="font-weight:bold" disabled="#{simulatorController.isConfigLock()}">
                                     <p:ajax update="simulateButton" listener="#{simulatorController.configChanged()}" />
@@ -138,18 +138,25 @@
                         <p:fieldset legend="#{bundle.Options}" style="margin-bottom:10px" toggleable="false">
                             <p:panelGrid columns="1" styleClass="myPanelGrid">
                                 <p:outputLabel value="#{bundle.StreamServer}" for="streamServer" style="font-weight:bold"/>
-                                <h:selectOneMenu id="streamServer" value="#{simulatorController.streamServer}" disabled="#{simulatorController.isConfigLock()}">
+                                <p:selectOneMenu id="streamServer" value="#{simulatorController.streamServer}" disabled="#{simulatorController.isConfigLock()}" >
                                     <f:selectItem itemValue="0" itemLabel="#{bundle.OnlyKafka}"/>
                                     <f:selectItem itemValue="1" itemLabel="#{bundle.OnlyZtreamy}"/>
                                     <f:selectItem itemValue="2" itemLabel="#{bundle.FirstKafkaThenZtreamy}"/>
                                     <f:selectItem itemValue="3" itemLabel="#{bundle.FirstZtreamyThenKafka}"/>
-                                </h:selectOneMenu>
+                                    <p:ajax event="change" update="streamServerPanel" />
+                                </p:selectOneMenu>
+
+                                <h:panelGroup id="streamServerPanel">
+                                    <p:selectBooleanCheckbox id="infiniteSimulation" value="#{simulatorController.infiniteSimulation}" itemLabel="#{bundle.InfiniteSimulation}" style="font-weight:bold" rendered="#{simulatorController.streamServer lt 2}" disabled="#{simulatorController.isConfigLock()}"/>
+                                    <p:selectBooleanCheckbox id="kafkaProducerPerSmartDriver" value="#{simulatorController.kafkaProducerPerSmartDriver}" itemLabel="#{bundle.KafkaProducerPerSmartDriver}" style="font-weight:bold" rendered="#{simulatorController.streamServer % 2 eq 0}" disabled="#{simulatorController.isConfigLock()}"/>
+                                </h:panelGroup>
+
                                 <p:outputLabel value="#{bundle.SmartDriversStartingMode}" for="startingMode" style="font-weight:bold"/>
-                                <h:selectOneMenu id="startingMode" value="#{simulatorController.startingMode}" disabled="#{simulatorController.isConfigLock()}">
+                                <p:selectOneMenu id="startingMode" value="#{simulatorController.startingMode}" disabled="#{simulatorController.isConfigLock()}">
                                     <f:selectItem itemValue="0" itemLabel="#{bundle.Aleatory}"/>
                                     <f:selectItem itemValue="1" itemLabel="#{bundle.Lineal}"/>
                                     <f:selectItem itemValue="2" itemLabel="#{bundle.SameTime}"/>
-                                </h:selectOneMenu>
+                                </p:selectOneMenu>
                                 <!--
                                 <h:outputText value="#{bundle.SimulationSpeed}" style="font-weight:bold"/>
                                 <p:selectOneButton value="#{simulatorController.simulatedSpeed}" disabled="#{simulatorController.isConfigLock()}" >
@@ -162,7 +169,6 @@
                                 <p:selectBooleanCheckbox value="#{simulatorController.enableGUI}" itemLabel="#{bundle.EnableGUI}" style="font-weight:bold">
                                     <p:ajax update="gmapUpdaterPanel" />
                                 </p:selectBooleanCheckbox>
-                                <!--<p:selectBooleanCheckbox value="#{simulatorController.analyzeImages}" itemLabel="#{bundle.AnalyzeGoogleStreetViewImages}" style="font-weight:bold" disabled="#{simulatorController.isConfigLock()}" />-->
                                 <p:selectBooleanCheckbox value="#{simulatorController.retryOnFail}" itemLabel="#{bundle.RetryOnFail}" style="font-weight:bold" disabled="#{simulatorController.isConfigLock()}">
                                     <p:ajax update="retriesOnFailPanel" />
                                 </p:selectBooleanCheckbox>
@@ -185,9 +191,7 @@
                                 <h:panelGroup>                                    
                                     <p:calendar id="scheduledSimulate" value="#{simulatorController.scheduledDate}" pattern="dd/MM/yyyy HH:mm:ss" disabled="#{simulatorController.isConfigLock()}" style="padding-right: 2px;"/>
                                     <p:commandButton icon="ui-icon-circle-close" action="#{simulatorController.resetScheduledDate()}" styleClass="ui-priority-primary, redIcon" disabled="#{simulatorController.isConfigLock()}" update="scheduledSimulate"/>
-                                </h:panelGroup>
-                                
-                                <p:selectBooleanCheckbox value="#{simulatorController.infiniteSimulation}" itemLabel="#{bundle.InfiniteSimulation}" style="font-weight:bold" disabled="#{simulatorController.isConfigLock()}"/>
+                                </h:panelGroup>                               
 
                             </p:panelGrid>
                         </p:fieldset>

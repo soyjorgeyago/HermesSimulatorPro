@@ -90,6 +90,9 @@ public class SimulatorController implements Serializable, ISimulatorControllerOb
 
     private static final Logger LOG = Logger.getLogger(SimulatorController.class.getName());
 
+    // El 'dashboard' está en: http://hermes1.gast.it.uc3m.es:9209/backend/dashboard.html
+    public static final String ZTREAMY_URL = HermesSimulatorConfig.getHermesSimulatorProperties().getProperty("ztreamy.url", "http://hermes1.gast.it.uc3m.es:9220/collector/publish"); // URL de Ztreamy OFICIAL
+
     private static final Location SEVILLE = new Location(37.3898358, -5.986069);
     public static final String MARKER_GREEN_CAR_ICON_PATH = "resources/img/greenCar.png";
     public static final String MARKER_YELLOW_CAR_ICON_PATH = "resources/img/yellowCar.png";
@@ -171,7 +174,6 @@ public class SimulatorController implements Serializable, ISimulatorControllerOb
     private static MapModel simulatedMapModel;
     private static ArrayList<LocationLog> locationLogList;
 
-//    private static Map<String, Timer> simulationTimers = null;
     private static int simulatedSmartDrivers = 1;
     static long startSimulationTime = 0l;
     private static long endSimulationTime = 0l;
@@ -234,6 +236,7 @@ public class SimulatorController implements Serializable, ISimulatorControllerOb
     private static int retries = 5;
 
     private static boolean infiniteSimulation = false;
+    static boolean kafkaProducerPerSmartDriver = true;
 
     // Kafka
     private static AtomicLong kafkaRecordId;
@@ -1001,6 +1004,7 @@ public class SimulatorController implements Serializable, ISimulatorControllerOb
 
     private void executeSimulation() {
         currentState = State.SIMULATING;
+
         kafkaProducer = new KafkaProducer<>(kafkaProperties);
         resetSimulation();
         createTempFolder();
@@ -1469,6 +1473,12 @@ public class SimulatorController implements Serializable, ISimulatorControllerOb
     public void setStreamServer(int value) {
         try {
             streamServer = Stream_Server.values()[value];
+            if (streamServer.ordinal() > 1) {
+                infiniteSimulation = false;
+            }
+            if (streamServer.ordinal() % 2 != 0) {
+                kafkaProducerPerSmartDriver = false;
+            }
         } catch (Exception ex) {
             // Si no fuera un valor válido, establecemos un valor por defecto.
             streamServer = Stream_Server.KAFKA;
@@ -1556,6 +1566,14 @@ public class SimulatorController implements Serializable, ISimulatorControllerOb
 
     public void setInfiniteSimulation(boolean is) {
         infiniteSimulation = is;
+    }
+
+    public boolean isKafkaProducerPerSmartDriver() {
+        return kafkaProducerPerSmartDriver;
+    }
+
+    public void setKafkaProducerPerSmartDriver(boolean kppsd) {
+        kafkaProducerPerSmartDriver = kppsd;
     }
 
     public boolean isRandomizeEachSmartDriverBehaviour() {
