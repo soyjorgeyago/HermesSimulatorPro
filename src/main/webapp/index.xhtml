@@ -150,6 +150,7 @@
                                     <f:selectItem itemValue="1" itemLabel="#{bundle.Lineal}"/>
                                     <f:selectItem itemValue="2" itemLabel="#{bundle.SameTime}"/>
                                 </h:selectOneMenu>
+                                <!--
                                 <h:outputText value="#{bundle.SimulationSpeed}" style="font-weight:bold"/>
                                 <p:selectOneButton value="#{simulatorController.simulatedSpeed}" disabled="#{simulatorController.isConfigLock()}" >
                                     <f:selectItem itemValue="0" itemLabel="1x"/>
@@ -157,6 +158,7 @@
                                     <f:selectItem itemValue="2" itemLabel="100x"/>
                                     <f:selectItem itemValue="3" itemLabel="1000x"/>
                                 </p:selectOneButton>
+                                -->
                                 <p:selectBooleanCheckbox value="#{simulatorController.enableGUI}" itemLabel="#{bundle.EnableGUI}" style="font-weight:bold">
                                     <p:ajax update="gmapUpdaterPanel" />
                                 </p:selectBooleanCheckbox>
@@ -184,12 +186,14 @@
                                     <p:calendar id="scheduledSimulate" value="#{simulatorController.scheduledDate}" pattern="dd/MM/yyyy HH:mm:ss" disabled="#{simulatorController.isConfigLock()}" style="padding-right: 2px;"/>
                                     <p:commandButton icon="ui-icon-circle-close" action="#{simulatorController.resetScheduledDate()}" styleClass="ui-priority-primary, redIcon" disabled="#{simulatorController.isConfigLock()}" update="scheduledSimulate"/>
                                 </h:panelGroup>
+                                
+                                <p:selectBooleanCheckbox value="#{simulatorController.infiniteSimulation}" itemLabel="#{bundle.InfiniteSimulation}" style="font-weight:bold" disabled="#{simulatorController.isConfigLock()}"/>
 
                             </p:panelGrid>
                         </p:fieldset>
 
                         <p:commandButton widgetVar="simulateButtonVar" id="simulateButton" value="#{simulatorController.isConfigLock() ? bundle.StopSimulation : bundle.StartSimulation}" action="#{simulatorController.simulate()}" update="gmap, gmapUpdaterPanel, checkFinishPanel, configurationPanel, growl" styleClass="ui-priority-primary" style="width: 50%; position: relative; left: 20%" onstart="PF('statusDialog').show()" oncomplete="updatePrimefacesMapBounds(); handleComplete(xhr, status, args);PF('statusDialog').hide()" disabled="#{!simulatorController.buttonStartStopEnabled}"/>
-                        <h:outputText value="v1.3" style="font-size: 70%; font-weight:bold; bottom: 0; right: 0; float: right"/>
+                        <h:outputText value="v1.4" style="font-size: 70%; font-weight:bold; bottom: 0; right: 0; float: right"/>
 
                     </h:panelGroup>
                 </p:layoutUnit>

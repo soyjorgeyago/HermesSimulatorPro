@@ -1,10 +1,5 @@
 package es.us.lsi.hermes.util;
 
-import ij.ImagePlus;
-import ij.io.FileSaver;
-import ij.process.ColorProcessor;
-import ij.process.ImageProcessor;
-import java.io.File;
 import java.util.concurrent.TimeUnit;
 
 public class Util {
@@ -82,25 +77,4 @@ public class Util {
 
         return (Math.toDegrees(Math.atan2(y, x)) + 360) % 360;
     }
-
-    public static void getRedChannel(File file) {
-        ImagePlus imagePlus = new ImagePlus(file.getPath());
-        ImageProcessor imageProcessor = imagePlus.getProcessor();
-        ImageProcessor red = ((ColorProcessor) imageProcessor).getChannel(1, null);
-        ImageProcessor green = ((ColorProcessor) imageProcessor).getChannel(2, null);
-        ImageProcessor blue = ((ColorProcessor) imageProcessor).getChannel(3, null);
-        ImageProcessor alpha = ((ColorProcessor) imageProcessor).getChannel(4, null);
-        ImagePlus redChannelImage = new ImagePlus("red channel", red);
-        ImagePlus greenChannelImage = new ImagePlus("green channel", green);
-        ImagePlus blueChannelImage = new ImagePlus("blue channel", blue);
-        ImagePlus alphaChannelImage = new ImagePlus("alpha channel", alpha);
-//        redImage.saveRoi();
-        new FileSaver(redChannelImage).saveAsPng(file.getParent() + "/redChannel.png");
-        new FileSaver(greenChannelImage).saveAsPng(file.getParent() + "/greenChannel.png");
-        new FileSaver(blueChannelImage).saveAsPng(file.getParent() + "/blueChannel.png");
-        new FileSaver(alphaChannelImage).saveAsPng(file.getParent() + "/alphaChannel.png");
-//        red.setRoi(Roi.previousRoi);
-//        return red.getProcessor();
-    }
-
 }
