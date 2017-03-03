@@ -69,7 +69,6 @@ import net.lingala.zip4j.util.Zip4jConstants;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang.time.DurationFormatUtils;
 import org.apache.kafka.clients.producer.KafkaProducer;
-import org.joda.time.LocalTime;
 import org.primefaces.context.RequestContext;
 import org.primefaces.event.CloseEvent;
 import org.primefaces.event.SlideEndEvent;
@@ -96,7 +95,7 @@ public class SimulatorController implements Serializable, ISimulatorControllerOb
     public static final String MARKER_YELLOW_CAR_ICON_PATH = "resources/img/yellowCar.png";
     public static final String MARKER_RED_CAR_ICON_PATH = "resources/img/redCar.png";
     private static final String MARKER_START_ICON_PATH = "resources/img/home.png";
-    private static final String MARKER_FINISH_ICON_PATH = "resources/img/finish.png";
+    private static final String MARKER_FINISH_ICON_PATH = "resources/img/workplace.png";
 
     private static final String DEFAULT_EMAIL = "jorgeyago.ingeniero@gmail.com";
 
@@ -179,7 +178,6 @@ public class SimulatorController implements Serializable, ISimulatorControllerOb
 
     private static String email = DEFAULT_EMAIL;
     private static boolean enableGUI = false;
-    // TODO: Introducir máquina de estados (FSM).
 
     private static int maxSmartDrivers = 20000;
 
@@ -188,18 +186,12 @@ public class SimulatorController implements Serializable, ISimulatorControllerOb
     // Información de monitorización del simulador, para poder generar un CSV y enviarlo por e-mail.
     private static volatile List<CSVSimulatorStatus> csvStatusList;
 
-    // TODO: Indicará si se analizan o no las imágenes conforme se simula la conducción por el trayecto.
-    static boolean analyzeImages = false;
-    // TODO: Directorio para almacenar las imágenes de Google Street View.
-    private static File googleStreetViewPhotosFolder;
-
     public static enum State {
         CONFIG_CHANGED, READY_TO_SIMULATE, SCHEDULED_SIMULATION, SIMULATING, ENDED, INTERRUPTED
     };
     private static State currentState = State.READY_TO_SIMULATE;
 
-    // TODO
-//    private static volatile SurroundingVehiclesConsumer surroundingVehiclesConsumer;
+    private static volatile SurroundingVehiclesConsumer surroundingVehiclesConsumer;
     private static ConcurrentHashMap<String, SimulatedSmartDriver> simulatedSmartDriverHashMap = new ConcurrentHashMap();
     private static ScheduledFuture emergencyScheduler;
     private static ScheduledFuture simulationScheduler;
@@ -241,6 +233,8 @@ public class SimulatorController implements Serializable, ISimulatorControllerOb
 
     private static int retries = 5;
 
+    private static boolean infiniteSimulation = false;
+
     // Kafka
     private static AtomicLong kafkaRecordId;
     private static volatile KafkaProducer<Long, String> kafkaProducer;
@@ -265,17 +259,7 @@ public class SimulatorController implements Serializable, ISimulatorControllerOb
         // Comprobamos si existe una configuración asignada en el archivo de propiedades y generamos la simulación.
         initNoGuiScheduledSimulation();
 
-        // Creamos un directorio temporal para almacenar las fotos que vayamos recogiendo de Google Street View.
-        // No importará que se pierda el directorio y su contenido ya que se usará simultáneamente con la simulación y ya no hará falta.
-        try {
-            googleStreetViewPhotosFolder = Files.createTempDirectory("googleStreetViewPhotos_").toFile();
-            LOG.log(Level.FINE, "init() - Directorio temporal para las imágenes de Google Street View: {0}", googleStreetViewPhotosFolder.getCanonicalPath());
-        } catch (IOException ex) {
-            LOG.log(Level.SEVERE, "init() - Error al crear el directorio temporal para las imágenes de Google Street View", ex);
-        }
-
-        // TODO: Probar otros timeouts más altos.
-//        surroundingVehiclesConsumer = new SurroundingVehiclesConsumer(this);
+        surroundingVehiclesConsumer = new SurroundingVehiclesConsumer(this);
         markersToRemove = new ArrayList<>();
         kafkaRecordId = new AtomicLong(0);
         kafkaProperties = Kafka.getKafkaProducerProperties();
@@ -386,10 +370,6 @@ public class SimulatorController implements Serializable, ISimulatorControllerOb
                                 // OPENSTREETMAP //
                                 ///////////////////
 
-                                // Las nuevas peticiones a OpenStreetMap tienen más densidad de puntos y se puede definir un factor de modificación de la velocidad de la vía.
-                                // Generaremos factores de alteración de la velocidad de 0.5 a 2.0.
-//                                double speedRandomFactor = 0.5d + (new Random().nextDouble() * 1.5d);
-                                // TODO: (Muchas peticiones) Ver si es la mejor forma o si calculo yo las modificaciones de las velocidades. 
                                 jsonPath = IOUtils.toString(new URL("http://cronos.lbd.org.es/hermes/api/smartdriver/network/simulate?fromLat=" + o.getLat() + "&fromLng=" + o.getLng() + "&toLat=" + d.getLat() + "&toLng=" + d.getLng() + "&speedFactor=1.0"), "UTF-8");
                             }
                         } catch (IOException ex) {
@@ -462,12 +442,8 @@ public class SimulatorController implements Serializable, ISimulatorControllerOb
         try {
             List<Future<String>> futureTaskList = PathRequestWebService.submitAllTask(pathRequestTaskSublist);
             for (Future<String> future : futureTaskList) {
-                LocationLog ll = new LocationLog();
-
-                Date currentTime = new Date();
-
                 // Creamos un objeto de localizaciones de 'SmartDriver'.
-                ll.setDateLog(currentTime);
+                LocationLog ll = new LocationLog();
 
                 // Procesamos el JSON de respuesta, en función de la plataforma a la que le hayamos hecho la petición.
                 try {
@@ -514,7 +490,7 @@ public class SimulatorController implements Serializable, ISimulatorControllerOb
                 }
 
                 // Creamos un usuario simulado, al que le asignaremos el trayecto.
-                Person person = createSimPerson(currentTime.getTime());
+                Person person = createSimPerson();
                 ll.setPerson(person);
                 ll.setFilename(person.getFullName());
 
@@ -547,7 +523,6 @@ public class SimulatorController implements Serializable, ISimulatorControllerOb
         // Dividimos entre 2.5 para tener incluso más precisión.
         int numberOfInnerLocations = (int) Math.ceil(pointsDistance / 2.5);
 
-        double timeFragment = (lld2.getTimeLog().getTime() - lld1.getTimeLog().getTime());
         double latitudeFragment = (lld2.getLatitude() - lld1.getLatitude()) / numberOfInnerLocations;
         double longitudeFragment = (lld2.getLongitude() - lld1.getLongitude()) / numberOfInnerLocations;
         double heartRateFragment = (lld2.getHeartRate() - lld1.getHeartRate()) / numberOfInnerLocations;
@@ -559,7 +534,6 @@ public class SimulatorController implements Serializable, ISimulatorControllerOb
             LocationLogDetail lld = new LocationLogDetail();
 
             lld.setLocationLog(lld1.getLocationLog());
-            lld.setTimeLog(new Date((long) (i * timeFragment + lld1.getTimeLog().getTime())));
             lld.setLatitude(i * latitudeFragment + lld1.getLatitude());
             lld.setLongitude(i * longitudeFragment + lld1.getLongitude());
             lld.setSpeed(i * speedFragment + lld1.getSpeed());
@@ -575,12 +549,10 @@ public class SimulatorController implements Serializable, ISimulatorControllerOb
         return lldListBetween;
     }
 
-    private Person createSimPerson(long currentTime) {
+    private Person createSimPerson() {
         Person person = new Person();
-        String name = "Sim_" + currentTime;
+        String name = "Sim_" + System.currentTimeMillis();
         person.setFullName(name);
-        person.setUsername(name);
-        person.setPassword("hermes");
         person.setEmail(name + "@sim.com");
 
         return person;
@@ -604,10 +576,8 @@ public class SimulatorController implements Serializable, ISimulatorControllerOb
             // Listado de posiciones que componen el trayecto de SmartDriver.
             ArrayList<LocationLogDetail> locationLogDetailList = new ArrayList<>();
 
-            // TODO: PONER en el marker !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
             double pathDistance = 0.0d;
             int pathDurationInSeconds = 0;
-            LocalTime localTime = new LocalTime();
 
             // Posición anterior en el trayecto.
             PositionSimulatedSpeed previous = pssList.get(0);
@@ -654,8 +624,6 @@ public class SimulatorController implements Serializable, ISimulatorControllerOb
                 // Añadimos los segundos correspondientes a la distancia recorrida entre puntos.
                 int pointDuration = (int) Math.ceil(pointDistance / currentSpeedMS);
                 // Añadimos los segundos correspondientes a la distancia recorrida entre puntos.
-                localTime = localTime.plusSeconds(pointDuration);
-                lld.setTimeLog(localTime.toDateTimeToday().toDate());
                 // Indicamos cuántos segundos deben pasar para estar en esta posición.
                 pathDurationInSeconds += pointDuration;
                 lld.setSecondsToBeHere(pathDurationInSeconds);
@@ -700,11 +668,9 @@ public class SimulatorController implements Serializable, ISimulatorControllerOb
                 if (r.getLegs() != null) {
                     Leg l = r.getLegs().get(0);
 
-                    // TODO: ¿Velocidades?
                     double speed;
                     double pathDistance = 0.0d;
                     int pathDurationInSeconds = 0;
-                    LocalTime localTime = new LocalTime();
 
                     ArrayList<Location> locationList = PolylineDecoder.decodePoly(r.getOverviewPolyline().getPoints());
                     // Posición anterior en el trayecto.
@@ -738,10 +704,8 @@ public class SimulatorController implements Serializable, ISimulatorControllerOb
                         lld.setSpeed(speed);
 
                         // Añadimos los segundos correspondientes a la distancia recorrida entre puntos.
-                        localTime = localTime.plusSeconds(pointDuration);
-                        lld.setTimeLog(localTime.toDateTimeToday().toDate());
-                        // Indicamos cuántos segundos deben pasar para estar en esta posición.
                         pathDurationInSeconds += pointDuration;
+                        // Indicamos cuántos segundos deben pasar para estar en esta posición.
                         lld.setSecondsToBeHere(pathDurationInSeconds);
 
                         locationLogDetailList.add(lld);
@@ -771,7 +735,7 @@ public class SimulatorController implements Serializable, ISimulatorControllerOb
         Marker startMarker = new Marker(startLatLng);
         startMarker.setVisible(true);
         startMarker.setDraggable(false);
-//        startMarker.setTitle(startPosition.getMarkerTitle());
+        startMarker.setTitle(bundle.getString("Home"));
         startMarker.setIcon(MARKER_START_ICON_PATH);
         simulatedMapModel.addOverlay(startMarker);
 
@@ -779,7 +743,7 @@ public class SimulatorController implements Serializable, ISimulatorControllerOb
         Marker endMarker = new Marker(endLatLng);
         endMarker.setVisible(true);
         endMarker.setDraggable(false);
-//        endMarker.setTitle(endPosition.getMarkerTitle());
+        endMarker.setTitle(bundle.getString("Workplace"));
         endMarker.setIcon(MARKER_FINISH_ICON_PATH);
         simulatedMapModel.addOverlay(endMarker);
     }
@@ -816,8 +780,8 @@ public class SimulatorController implements Serializable, ISimulatorControllerOb
         try {
             marker = (Marker) event.getOverlay();
             if (marker != null) {
-                // FIXME: Ver si se puede añadir salto de línea. No funciona '\n' ni '<br/>'
                 String sb = marker.getTitle();
+                // FIXME: Ver si se puede añadir salto de línea. No funciona '\n' ni '<br/>'
                 marker.setTitle(sb);
             }
         } catch (ClassCastException ex) {
@@ -878,14 +842,6 @@ public class SimulatorController implements Serializable, ISimulatorControllerOb
 
     public void setSecondsBetweenRetries(int sbr) {
         secondsBetweenRetries = sbr;
-    }
-
-    public boolean isAnalyzeImages() {
-        return analyzeImages;
-    }
-
-    public void setAnalyzeImages(boolean ai) {
-        analyzeImages = ai;
     }
 
     public int getPathsGenerationMethod() {
@@ -991,7 +947,7 @@ public class SimulatorController implements Serializable, ISimulatorControllerOb
         statusMonitorScheduler = scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
             @Override
             public void run() {
-                csvStatusList.add(new CSVSimulatorStatus(new Date().getTime(), GENERATED.intValue(), SENT.intValue(), OK.intValue(), NOT_OK.intValue(), ERRORS.intValue(), RECOVERED.intValue(), FINALLY_PENDING.intValue(), threadPool.getQueue().size(), maxSmartDriversDelay.get(), currentSmartDriversDelay.get()));
+                csvStatusList.add(new CSVSimulatorStatus(System.currentTimeMillis(), GENERATED.intValue(), SENT.intValue(), OK.intValue(), NOT_OK.intValue(), ERRORS.intValue(), RECOVERED.intValue(), FINALLY_PENDING.intValue(), threadPool.getQueue().size(), maxSmartDriversDelay.get(), currentSmartDriversDelay.get()));
                 // Cada vez que registramos el retraso actual en el CSV, lo inicializamos.
                 currentSmartDriversDelay.set(0);
                 // Comprobamos si han terminado todos los hilos de ejecución.
@@ -1053,8 +1009,7 @@ public class SimulatorController implements Serializable, ISimulatorControllerOb
         LOG.log(Level.INFO, "executeSimulation() - Envío de tramas a: {0}", Stream_Server.values()[streamServer.ordinal() % 2].name());
         LOG.log(Level.INFO, "executeSimulation() - Condiciones:\n-> Velocidad de simulación: {0}. Ejecución en tiempo real: {1}\n-> ¿Reenviar tramas fallidas?: {2}\n-> Segundos entre reintentos={3}\n-> Modo de inicio de los SmartDrivers={4}", new Object[]{timeRate.name(), timeRate.equals(Time_Rate.X1), retryOnFail, secondsBetweenRetries, startingMode.name()});
         LOG.log(Level.INFO, "executeSimulation() - Se inicia el consumidor de análisis de vehículos cercanos");
-        // TODO
-//        surroundingVehiclesConsumer.startConsumer();
+        surroundingVehiclesConsumer.startConsumer();
 
         LOG.log(Level.INFO, "executeSimulation() - Se crearán: {0} hilos de ejecución", simulatedSmartDrivers * locationLogList.size());
         try {
@@ -1097,7 +1052,7 @@ public class SimulatorController implements Serializable, ISimulatorControllerOb
         c.setFillColor("#00FF00");
         c.setFillOpacity(0.2);
 
-        SimulatedSmartDriver ssd = new SimulatedSmartDriver(id, ll, m, c, randomizeEachSmartDriverBehaviour, monitorEachSmartDriver, streamServer.ordinal() % 2, retries);
+        SimulatedSmartDriver ssd = new SimulatedSmartDriver(id, ll, m, c, randomizeEachSmartDriverBehaviour, monitorEachSmartDriver, infiniteSimulation, streamServer.ordinal() % 2, retries);
         simulatedSmartDriverHashMap.put(ssd.getSha(), ssd);
 
         long delay = 0;
@@ -1223,8 +1178,7 @@ public class SimulatorController implements Serializable, ISimulatorControllerOb
                     LOG.log(Level.SEVERE, "finishSimulation() - ########## SIMULACION INTERRUMPIDA ##########");
                 }
                 LOG.log(Level.INFO, "finishSimulation() - Se para el consumidor de análisis de vehículos cercanos");
-                // TODO
-//                surroundingVehiclesConsumer.stopConsumer();
+                surroundingVehiclesConsumer.stopConsumer();
                 String simulationSummary;
                 if (interrupted || ERRORS.get() > 0 || NOT_OK.get() > 0) {
                     simulationSummary = MessageFormat.format("RESULTADO DE LA SIMULACION:\n\n-> Servidor de tramas={0}\n\n-> Tramas generadas={1}\n-> Envíos realizados={2}\n-> Oks={3}\n-> NoOks={4}\n-> Errores={5}\n-> Recuperados={6}\n-> No reenviados finalmente={7}\n-> Hilos restantes={8}\n-> Trayectos={9}\n-> Distancia={10}\n-> Instancias SmartDriver por trayecto={11}\n-> Reintentar fallidos={12}\n-> Segundos entre reintentos={13}\n-> Máximo retraso temporal={14}s\n\n", new Object[]{Stream_Server.values()[streamServer.ordinal() % 2].name(), GENERATED, SENT, OK, NOT_OK, ERRORS, RECOVERED, FINALLY_PENDING, threadPool.getQueue().size(), locationLogList.size(), distance, simulatedSmartDrivers, retryOnFail, secondsBetweenRetries, Constants.df2Decimals.format(maxSmartDriversDelay.get() / 1000.0d)});
@@ -1304,10 +1258,6 @@ public class SimulatorController implements Serializable, ISimulatorControllerOb
 
     public static void increaseSends() {
         SENT.incrementAndGet();
-    }
-
-    public static File getGoogleStreetViewPhotosFolder() {
-        return googleStreetViewPhotosFolder;
     }
 
     public static void logCurrentStatus() {
@@ -1588,7 +1538,7 @@ public class SimulatorController implements Serializable, ISimulatorControllerOb
             emergencyScheduler.cancel(true);
         }
         ScheduledExecutorService scheduledExecutorService = Executors.newSingleThreadScheduledExecutor();
-        // Cada hilo vigila por su cuenta si ha llegado al tiempo máximo de simulación, pero en cualquier caso, cumplido el tiempo máximo de simulación más un minuto extra de margen, se llamará a la finalización de emergencia.
+        // Por seguridad, se establece un tiempo máximo de simulación (más un minuto extra de margen). Cumplido este tiempo se llamará a la finalización de emergencia.
         emergencyScheduler = scheduledExecutorService.scheduleAtFixedRate(new EmergencyShutdown(startSimulationTime, MAX_SIMULATION_TIME + 60000), 0, 5, TimeUnit.SECONDS);
     }
 
@@ -1598,6 +1548,14 @@ public class SimulatorController implements Serializable, ISimulatorControllerOb
 
     public void setMonitorEachSmartDriver(boolean m) {
         monitorEachSmartDriver = m;
+    }
+
+    public boolean isInfiniteSimulation() {
+        return infiniteSimulation;
+    }
+
+    public void setInfiniteSimulation(boolean is) {
+        infiniteSimulation = is;
     }
 
     public boolean isRandomizeEachSmartDriverBehaviour() {
