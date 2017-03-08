@@ -18,7 +18,7 @@ public class SurroundingVehiclesConsumer extends ShutdownableThread {
     public static final String TOPIC_SURROUNDING_VEHICLES = "SurroundingVehicles";
 
     private KafkaConsumer<String, String> kafkaConsumer;
-    private long pollTimeout;
+    private final long pollTimeout;
 //    private final String sourceId;
     private final ISimulatorControllerObserver observer;
     private final Gson gson;
@@ -30,17 +30,15 @@ public class SurroundingVehiclesConsumer extends ShutdownableThread {
         // TODO: Investigar si mediante el consumer.id o mediante el group.id podemos hacer que cada consumer coja lo suyo únicamente.
 //        props.put("consumer.id", sourceId);
 //        this.sourceId = sourceId;
+        this.kafkaConsumer = new KafkaConsumer<>(Kafka.getKafkaConsumerProperties());
         this.pollTimeout = Long.parseLong(Kafka.getKafkaConsumerProperties().getProperty("consumer.poll.timeout.ms", "1000"));
         this.observer = observer;
         this.gson = new Gson();
     }
 
-    public void startConsumer() {
-        this.kafkaConsumer = new KafkaConsumer<>(Kafka.getKafkaConsumerProperties());
-    }
-    
     public void stopConsumer() {
-        this.kafkaConsumer.close();
+        kafkaConsumer.close();
+        shutdown();
     }
 
     @Override

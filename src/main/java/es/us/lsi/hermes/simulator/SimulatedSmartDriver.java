@@ -927,6 +927,9 @@ public class SimulatedSmartDriver implements Runnable, ISimulatedSmartDriverObse
                 if (smartDriverKafkaProducer != null) {
                     smartDriverKafkaProducer.flush();
                     smartDriverKafkaProducer.close();
+                    // FIXME: Algunas veces salta una excepción de tipo 'java.lang.InterruptedException'.
+                    // Es un 'bug' que aún está en estado aabierto en Kafka.
+                    // https://issues.streamsets.com/browse/SDC-4925
                 }
             }
             // Si tuviera un 'publisher' de Ztreamy, lo cerramos.
@@ -943,8 +946,6 @@ public class SimulatedSmartDriver implements Runnable, ISimulatedSmartDriverObse
                 File statusFile = new File(SimulatorController.getTempFolder().toUri().getPath(), statusFileNameCSV);
                 createStatusDataFile(CsvPreference.EXCEL_NORTH_EUROPE_PREFERENCE, false, statusFile);
             }
-//            Thread.currentThread().interrupt();
-            return;
         }
     }
 

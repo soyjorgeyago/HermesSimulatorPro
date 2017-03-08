@@ -1,6 +1,5 @@
 package es.us.lsi.hermes.util;
 
-import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -70,23 +69,28 @@ public class JsfUtil {
         FacesMessage facesMsg = new FacesMessage(FacesMessage.SEVERITY_ERROR, msg, dtl);
         FacesContext.getCurrentInstance().addMessage(tag, facesMsg);
     }
+    
+    public static void addWarnMessage(String msg) {
+        FacesMessage facesMsg = new FacesMessage(FacesMessage.SEVERITY_WARN, msg, "");
+        FacesContext.getCurrentInstance().addMessage("messages", facesMsg);
+    }
 
-    public static void addSuccessMessage(String msg) {
+    public static void addInfoMessage(String msg) {
         FacesMessage facesMsg = new FacesMessage(FacesMessage.SEVERITY_INFO, msg, "");
         FacesContext.getCurrentInstance().addMessage("messages", facesMsg);
     }
 
-    public static void addSuccessMessageTag(String tag, String msg) {
+    public static void addInfoMessageTag(String tag, String msg) {
         FacesMessage facesMsg = new FacesMessage(FacesMessage.SEVERITY_INFO, msg, "");
         FacesContext.getCurrentInstance().addMessage(tag, facesMsg);
     }
 
-    public static void addSuccessMessage(String msg, String dtl) {
+    public static void addInfoMessage(String msg, String dtl) {
         FacesMessage facesMsg = new FacesMessage(FacesMessage.SEVERITY_INFO, msg, dtl);
         FacesContext.getCurrentInstance().addMessage("messages", facesMsg);
     }
 
-    public static void addSuccessMessageTag(String tag, String msg, String dtl) {
+    public static void addInfoMessageTag(String tag, String msg, String dtl) {
         FacesMessage facesMsg = new FacesMessage(FacesMessage.SEVERITY_INFO, msg, dtl);
         FacesContext.getCurrentInstance().addMessage(tag, facesMsg);
     }
