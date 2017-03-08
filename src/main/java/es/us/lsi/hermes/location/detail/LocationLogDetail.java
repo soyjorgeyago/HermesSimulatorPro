@@ -5,15 +5,11 @@ import es.us.lsi.hermes.util.Constants;
 import java.io.Serializable;
 import java.util.Date;
 import java.util.ResourceBundle;
-import org.apache.commons.lang.builder.EqualsBuilder;
-import org.apache.commons.lang.builder.HashCodeBuilder;
-
 
 public class LocationLogDetail implements Serializable {
 
     private static final long serialVersionUID = 1L;
     private Integer locationLogDetailId;
-    private Date timeLog;
     private double latitude;
     private double longitude;
     private double speed;
@@ -23,7 +19,6 @@ public class LocationLogDetail implements Serializable {
     private int secondsToBeHere;
 
     public LocationLogDetail() {
-        this.timeLog = null;
         this.latitude = 0.0d;
         this.longitude = 0.0d;
         this.speed = 0.0d;
@@ -51,14 +46,6 @@ public class LocationLogDetail implements Serializable {
 
     public void setLocationLogDetailId(Integer locationLogDetailId) {
         this.locationLogDetailId = locationLogDetailId;
-    }
-
-    public Date getTimeLog() {
-        return timeLog;
-    }
-
-    public void setTimeLog(Date timeLog) {
-        this.timeLog = timeLog;
     }
 
     public double getLatitude() {
@@ -118,26 +105,6 @@ public class LocationLogDetail implements Serializable {
     }
 
     @Override
-    public int hashCode() {
-        return new HashCodeBuilder(19, 29).
-                append(timeLog).
-                toHashCode();
-    }
-
-    @Override
-    public boolean equals(Object object) {
-        if (!(object instanceof LocationLogDetail)) {
-            return false;
-        }
-        LocationLogDetail other = (LocationLogDetail) object;
-
-        // Dos elementos serán iguales si tienen el mismo id.
-        return new EqualsBuilder().
-                append(this.locationLogDetailId, other.locationLogDetailId).
-                isEquals();
-    }
-
-    @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
 
@@ -149,14 +116,14 @@ public class LocationLogDetail implements Serializable {
                 .append(this.heartRate)
                 .append(", S: ")
                 .append(this.speed)
-                .append("]");
+                .append(" km/h]");
 
         return sb.toString();
     }
 
     public String getMarkerTitle() {
         StringBuilder sb = new StringBuilder();
-        sb.append(ResourceBundle.getBundle("/Bundle").getString("Time")).append(": ").append(Constants.dfTime.format(getTimeLog()));
+        sb.append(ResourceBundle.getBundle("/Bundle").getString("Time")).append(": ").append(Constants.dfTime.format(System.currentTimeMillis() + (secondsToBeHere * 1000)));
         sb.append(" ");
         sb.append(ResourceBundle.getBundle("/Bundle").getString("HeartRate")).append(": ").append(Integer.toString(getHeartRate()));
         sb.append(" ");

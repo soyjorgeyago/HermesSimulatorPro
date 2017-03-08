@@ -5,15 +5,12 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.ResourceBundle;
-import javax.ejb.EJBException;
 import javax.faces.application.FacesMessage;
 import javax.faces.component.UIComponent;
 import javax.faces.context.ExternalContext;
 import javax.faces.context.FacesContext;
 import javax.faces.convert.Converter;
 import javax.faces.model.SelectItem;
-import javax.persistence.PersistenceException;
-import org.eclipse.persistence.exceptions.DatabaseException;
 
 public class JsfUtil {
 
@@ -103,13 +100,6 @@ public class JsfUtil {
         return converter.getAsObject(FacesContext.getCurrentInstance(), component, theId);
     }
 
-    public static enum PersistAction {
-
-        CREATE,
-        DELETE,
-        UPDATE
-    }
-
     /**
      * Método para mostrar un pequeño mensaje de ayuda, siempre que exista en el
      * XHTML la etiqueta '<p:message>' con el identificador 'helpMessage'. Se
@@ -127,8 +117,8 @@ public class JsfUtil {
         if (!requestCookieMap.containsKey(nameOfCookie)) {
             Map<String, Object> properties = new HashMap<>();
             properties.put("maxAge", 315360000); // 10 años ;)
-            externalContext.addResponseCookie(nameOfCookie, Long.toString(new Date().getTime()), properties);
-            FacesContext.getCurrentInstance().addMessage("helpMessage", new FacesMessage(FacesMessage.SEVERITY_INFO, ResourceBundle.getBundle("/Bundle").getString("Info"), message));
+            externalContext.addResponseCookie(nameOfCookie, Long.toString(System.currentTimeMillis()), properties);
+            FacesContext.getCurrentInstance().addMessage("helpMessage", new FacesMessage(FacesMessage.SEVERITY_INFO, ResourceBundle.getBundle("/Bundle").getString("Information"), message));
         }
     }
 
@@ -139,44 +129,7 @@ public class JsfUtil {
      * @param message Mensaje que se mostrará en la zona de mensajes.
      */
     public static void showHelpMessage(String message) {
-        FacesContext.getCurrentInstance().addMessage("helpMessage", new FacesMessage(FacesMessage.SEVERITY_INFO, ResourceBundle.getBundle("/Bundle").getString("Info"), message));
+        FacesContext.getCurrentInstance().addMessage("helpMessage", new FacesMessage(FacesMessage.SEVERITY_INFO, ResourceBundle.getBundle("/Bundle").getString("Information"), message));
     }
 
-    /**
-     * Método para mostrar el motivo de error, en el caso de ser una
-     * EJBException, de forma más detallada, ya que debido a un 'bug' de JPA (en
-     * la versión actual), no es posible obtener el detalle de otra forma
-     *
-     * @param ex Excepción de tipo 'EJBException'
-     */
-    public static void showDetailedExceptionCauseMessage(EJBException ex) {
-        try {
-            // Obtenemos la excepción de la capa de persistencia.
-            PersistenceException persistenceException = (PersistenceException) ex.getCausedByException().getCause();
-            // Comprobamos si es una excepción producida por la base de datos.
-            if (persistenceException.getCause() instanceof DatabaseException) {
-                DatabaseException databaseException = (DatabaseException) persistenceException.getCause();
-                if (databaseException.getDatabaseErrorCode() == 1062) {
-                    // FIXME: Hacer genérico para cualquier base de datos. ¿Códigos de error para JPA?
-                    // Ya existe el usuario.
-                    throw new Exception(ResourceBundle.getBundle("/Bundle").getString("ExistingData"));
-                } else if (databaseException.getDatabaseErrorCode() == 1048) {
-                    // FIXME: Hacer genérico para cualquier base de datos. ¿Códigos de error para JPA?
-                    // Datos de acceso incorrectos.
-                    throw new Exception(ResourceBundle.getBundle("/Bundle").getString("InvalidAccessData"));
-                }
-            }
-            throw ex;
-        } catch (Exception e) {
-            String msg = "";
-            Throwable cause = e.getCause();
-            if (cause != null) {
-                msg = cause.getLocalizedMessage();
-            } else if (e.getLocalizedMessage() != null) {
-                msg = e.getLocalizedMessage();
-            }
-
-            JsfUtil.addErrorMessage(msg, ResourceBundle.getBundle("/Bundle").getString("CheckData"));
-        }
-    }
 }

@@ -1,9 +1,7 @@
 package es.us.lsi.hermes.csv;
 
-import es.us.lsi.hermes.util.Constants;
 import java.io.Serializable;
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.List;
 import org.supercsv.cellprocessor.ift.CellProcessor;
 
@@ -29,7 +27,7 @@ public class CSVSimulatorStatus implements Serializable, ICSVBean {
     protected String[] headers;
 
     public CSVSimulatorStatus() {
-        this(new Date().getTime(), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        this(System.currentTimeMillis(), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
     }
 
     public CSVSimulatorStatus(long timestamp, int generated, int sent, int ok, int notOk, int errors, int recovered, int pending, int runningThreads, long maxSmartDriversDelay, long currentSmartDriversDelay) {

@@ -4,7 +4,7 @@
 
     <groupId>es.us.lsi.hermes</groupId>
     <artifactId>HermesSimulatorPro</artifactId>
-    <version>1.3</version>
+    <version>1.4</version>
     <packaging>war</packaging>
 
     <name>HermesSimulatorPro</name>

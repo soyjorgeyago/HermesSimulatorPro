@@ -2,7 +2,6 @@ package es.us.lsi.hermes.csv;
 
 import java.io.Serializable;
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.List;
 import org.supercsv.cellprocessor.ift.CellProcessor;
 
@@ -21,7 +20,7 @@ public class CSVSmartDriverStatus implements Serializable, ICSVBean {
     protected String[] headers;
 
     public CSVSmartDriverStatus() {
-        this(0, new Date().getTime(), 0, 0);
+        this(0, System.currentTimeMillis(), 0, 0);
     }
 
     public CSVSmartDriverStatus(int id, long timestamp, long delay, int size) {

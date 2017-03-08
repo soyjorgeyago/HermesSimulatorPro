@@ -10,7 +10,6 @@ import es.us.lsi.hermes.smartDriver.DataSection;
 import es.us.lsi.hermes.smartDriver.RoadSection;
 import es.us.lsi.hermes.util.Constants;
 import es.us.lsi.hermes.util.HermesException;
-import es.us.lsi.hermes.util.SaveImageFromURL;
 import es.us.lsi.hermes.util.Util;
 import java.io.File;
 import java.io.FileWriter;
@@ -21,6 +20,7 @@ import java.net.URL;
 import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -50,12 +50,6 @@ import ztreamy.PublisherHC;
 public class SimulatedSmartDriver implements Runnable, ISimulatedSmartDriverObserver {
 
     private static final Logger LOG = Logger.getLogger(SimulatedSmartDriver.class.getName());
-
-    // En este caso, no cogemos la configuración de Ztreamy, sino que enviamos los datos a una URL con un Ztreamy para pruebas.
-    // El 'dashboard' está en: http://hermes1.gast.it.uc3m.es:9209/backend/dashboard.html
-    private static final String ZTREAMY_URL = "http://hermes1.gast.it.uc3m.es:9220/collector/publish"; // OFICIAL
-//    private static final String ZTREAMY_URL = "http://localhost:9220/collector/publish";  // LOCAL
-//    private static final String ZTREAMY_URL = "http://150.214.188.40:9220/collector/publish";  // SERVIDOR DESARROLLO (Equipo2)
 
     // Parámetros recogidos de SmartDriver.
     private static final int ZTREAMY_SEND_INTERVAL_SECONDS = 10;
@@ -91,9 +85,8 @@ public class SimulatedSmartDriver implements Runnable, ISimulatedSmartDriverObse
     private PublisherHC publisher;
 
     // Kafka
-    private long kafkaRecordId;
-    private KafkaProducer<Long, String> kafkaProducer;
-
+    private long smartDriverKafkaRecordId;
+    private KafkaProducer<Long, String> smartDriverKafkaProducer;
     // Lista de hitos del recorrido por las que pasará el SmartDriver.
     private List<LocationLogDetail> localLocationLogDetailList;
 
@@ -125,6 +118,7 @@ public class SimulatedSmartDriver implements Runnable, ISimulatedSmartDriverObse
     private long maxDelay;
     private long currentDelay;
     private boolean monitorize;
+    private boolean infiniteSimulation;
     private final int retries;
 
     // Información de monitorización del SmartDriver, para poder generar un CSV y enviarlo por e-mail.
@@ -139,11 +133,19 @@ public class SimulatedSmartDriver implements Runnable, ISimulatedSmartDriverObse
      * conductor en el mapa.
      * @param randomBehaviour Indicará si tendrá una componente aleatoria en su
      * comportamiento. no.
+     * @param monitorize Indicará si se generará un archivo CSV con la
+     * información detallada de cada SmartDriver dureante la simulación.
+     * @param infiniteSimulation Indicará si se debe parar la simulación o
+     * volver de vuelta cada SmartDriver, cuando llegue a su destino.
+     * @param streamServer Indicará el servidor de tramas que recibirá la
+     * información de la simulación.
+     * @param retries Indicará el número de reintentos de envío de una trama
+     * fallida, antes de descartarla.
      *
      * @throws MalformedURLException
      * @throws HermesException
      */
-    public SimulatedSmartDriver(int id, LocationLog ll, Marker pathMarker, Circle pathCircle, boolean randomBehaviour, boolean monitorize, int streamServer, int retries) throws MalformedURLException, HermesException {
+    public SimulatedSmartDriver(int id, LocationLog ll, Marker pathMarker, Circle pathCircle, boolean randomBehaviour, boolean monitorize, boolean infiniteSimulation, int streamServer, int retries) throws MalformedURLException, HermesException {
         this.id = id;
         this.ll = ll;
         this.pathMarker = pathMarker;
@@ -164,6 +166,7 @@ public class SimulatedSmartDriver implements Runnable, ISimulatedSmartDriverObse
         this.maxDelay = 0;
         this.currentDelay = 0;
         this.monitorize = monitorize;
+        this.infiniteSimulation = infiniteSimulation;
 //        // TODO: Probar otros timeouts más altos.
 //        this.surroundingVehiclesConsumer = new SurroundingVehiclesConsumer(Long.parseLong(Kafka.getKafkaProperties().getProperty("consumer.poll.timeout.ms", "1000")), sha, this);
         this.pendingVehicleLocations = new ArrayList<>();
@@ -200,18 +203,20 @@ public class SimulatedSmartDriver implements Runnable, ISimulatedSmartDriverObse
         }
         this.csvEventList = new ArrayList<>();
         this.csvStatusList = new ArrayList<>();
-        this.kafkaRecordId = 0;
+//        this.kafkaRecordId = 0;
         this.streamServer = streamServer;
         switch (streamServer) {
             case 0:
-                // Inicializamos el 'kafkaProducer' de Kafka.
-                Properties kafkaProperties = Kafka.getKafkaProducerProperties();
-                kafkaProperties.setProperty("client.id", sha);
-                this.kafkaProducer = new KafkaProducer<>(kafkaProperties);
+                if (SimulatorController.kafkaProducerPerSmartDriver) {
+                    // Inicializamos el 'kafkaProducer' de Kafka.
+                    Properties kafkaProperties = Kafka.getKafkaProducerProperties();
+                    kafkaProperties.setProperty("client.id", sha);
+                    this.smartDriverKafkaProducer = new KafkaProducer<>(kafkaProperties);
+                }
                 break;
             case 1:
                 // Inicializamos el 'publisher' de Ztreamy.
-                this.publisher = new PublisherHC(new URL(ZTREAMY_URL), new JSONSerializer());
+                this.publisher = new PublisherHC(new URL(SimulatorController.ZTREAMY_URL), new JSONSerializer());
                 break;
             default:
                 throw new IllegalArgumentException("Invalid Stream Server option");
@@ -282,17 +287,32 @@ public class SimulatedSmartDriver implements Runnable, ISimulatedSmartDriverObse
                 if (elapsedSeconds >= currentLocationLogDetail.getSecondsToBeHere()) {
                     // Comprobamos si hemos llegado al destino.
                     if (currentPosition == localLocationLogDetailList.size() - 1) {
-                        // Si hemos llegado, hacemos invisible el marker del mapa.
-                        pathMarker.setVisible(false);
-                        // Notificamos que ha terminado el SmartDriver actual.
-                        SimulatorController.smartDriverHasFinished(this.getSha());
+                        if (!infiniteSimulation) {
+                            // Si hemos llegado, hacemos invisible el marker del mapa.
+                            pathMarker.setVisible(false);
+                            // Notificamos que ha terminado el SmartDriver actual.
+                            SimulatorController.smartDriverHasFinished(this.getSha());
 
-                        LOG.log(Level.FINE, "SimulatedSmartDriver.run() - El usuario ha llegado a su destino en: {0}", DurationFormatUtils.formatDuration(elapsedSeconds * 1000l, "HH:mm:ss", true));
-                        SimulatorController.addFinallyPending(pendingVehicleLocations.size() + pendingDataSections.size());
-                        if (monitorize) {
-                            SimulatorController.addCSVEvents(csvEventList);
+                            LOG.log(Level.FINE, "SimulatedSmartDriver.run() - El usuario ha llegado a su destino en: {0}", DurationFormatUtils.formatDuration(elapsedSeconds * 1000l, "HH:mm:ss", true));
+                            SimulatorController.addFinallyPending(pendingVehicleLocations.size() + pendingDataSections.size());
+                            if (monitorize) {
+                                SimulatorController.addCSVEvents(csvEventList);
+                            }
+                            finish();
+                        } else {
+                            // Hemos llegado al final, pero es una simulación infinita. Le damos la vuelta al recorrido y seguimos.
+                            Collections.reverse(localLocationLogDetailList);
+                            int size = localLocationLogDetailList.size();
+                            for (int i = 0; i < size / 2; i++) {
+                                LocationLogDetail lld1 = localLocationLogDetailList.get(i);
+                                LocationLogDetail lld2 = localLocationLogDetailList.get(size - 1 - i);
+                                int stbh1 = lld1.getSecondsToBeHere();
+                                lld1.setSecondsToBeHere(lld2.getSecondsToBeHere());
+                                lld2.setSecondsToBeHere(stbh1);
+                            }
+                            currentPosition = 0;
+                            elapsedSeconds = 0;
                         }
-                        finish();
                     } else {
                         // No hemos llegado al destino, avanzamos de posición.
                         int previousPosition = currentPosition;
@@ -319,6 +339,7 @@ public class SimulatedSmartDriver implements Runnable, ISimulatedSmartDriverObse
                         // Calculamos la orientación para simular estrés al entrar en una curva.
                         bearing = Util.bearing(previousLocationLogDetail.getLatitude(), previousLocationLogDetail.getLongitude(), currentLocationLogDetail.getLatitude(), currentLocationLogDetail.getLongitude());
 
+                        // TODO: ¿Criterios que puedan alterar el estrés? 
                         if (previousPosition > 1) {
                             LocationLogDetail antePreviousLocationLogDetail = localLocationLogDetailList.get(previousPosition - 1);
                             double previousBearing = Util.bearing(antePreviousLocationLogDetail.getLatitude(), antePreviousLocationLogDetail.getLongitude(), previousLocationLogDetail.getLatitude(), previousLocationLogDetail.getLongitude());
@@ -326,6 +347,7 @@ public class SimulatedSmartDriver implements Runnable, ISimulatedSmartDriverObse
 
                             // Si hay una desviación brusca de la trayectoria, suponemos una componente de estrés.
                             stressForDeviation(bearingDiff);
+
                         }
 
                         double speedDiff = Math.abs(currentLocationLogDetail.getSpeed() - previousLocationLogDetail.getSpeed());
@@ -370,23 +392,12 @@ public class SimulatedSmartDriver implements Runnable, ISimulatedSmartDriverObse
                         // Hacemos el análisis del PKE (Positive Kinetic Energy)
                         cummulativePositiveSpeeds += analyzePKE(currentLocationLogDetail, previousLocationLogDetail);
 
-                        if (currentLocationLogDetail.getTimeLog() == null) {
-                            currentLocationLogDetail.setTimeLog(new Date());
-                        }
                         // Información.
                         pathMarker.setTitle(currentLocationLogDetail.getMarkerTitle());
 
-                        if (SimulatorController.analyzeImages) {
-                            // Grabamos las imágenes de Google Street View de la ubicación actual.
-                            saveGoogleStreetViewImages(currentLocationLogDetail, bearing);
-                            // Analizamos las imágenes obtenidas.
-                            // FIXME
-//                        analyzeGoogleStreetViewImages();
-                        }
-
                         // Creamos un elementos de tipo 'RoadSection', para añadirlo al 'DataSection' que se envía a 'Ztreamy' cada 500 metros.
                         RoadSection rs = new RoadSection();
-                        rs.setTime(currentLocationLogDetail.getTimeLog().getTime());
+                        rs.setTime(System.currentTimeMillis());
                         rs.setLatitude(currentLocationLogDetail.getLatitude());
                         rs.setLongitude(currentLocationLogDetail.getLongitude());
                         int tDiff = (currentLocationLogDetail.getSecondsToBeHere() - previousLocationLogDetail.getSecondsToBeHere());
@@ -426,11 +437,19 @@ public class SimulatedSmartDriver implements Runnable, ISimulatedSmartDriverObse
                                 // Kafka
                                 try {
                                     String json = new Gson().toJson(events);
-                                    kafkaProducer.send(new ProducerRecord<>(Kafka.TOPIC_VEHICLE_LOCATION,
-                                            kafkaRecordId,
-                                            json
-                                    ), new KafkaCallBack(System.currentTimeMillis(), kafkaRecordId, events, Event_Type.RECOVERED_VEHICLE_LOCATION));
-                                    kafkaRecordId++;
+                                    long id = SimulatorController.getNextKafkaRecordId();
+                                    if (SimulatorController.kafkaProducerPerSmartDriver) {
+                                        smartDriverKafkaProducer.send(new ProducerRecord<>(Kafka.TOPIC_VEHICLE_LOCATION,
+                                                smartDriverKafkaRecordId,
+                                                json
+                                        ), new KafkaCallBack(System.currentTimeMillis(), smartDriverKafkaRecordId, events, Event_Type.RECOVERED_VEHICLE_LOCATION));
+                                        smartDriverKafkaRecordId++;
+                                    } else {
+                                        SimulatorController.getKafkaProducer().send(new ProducerRecord<>(Kafka.TOPIC_VEHICLE_LOCATION,
+                                                id,
+                                                json
+                                        ), new KafkaCallBack(System.currentTimeMillis(), id, events, Event_Type.RECOVERED_VEHICLE_LOCATION));
+                                    }
                                 } catch (Exception ex) {
                                     LOG.log(Level.SEVERE, "*Reintento* - Error: {0} - No se han podido reenviar los {1} 'Vehicle Location' pendientes", new Object[]{ex.getMessage(), pendingVehicleLocations.size()});
                                     SimulatorController.logCurrentStatus();
@@ -488,11 +507,19 @@ public class SimulatedSmartDriver implements Runnable, ISimulatedSmartDriverObse
                                 // Kafka
                                 try {
                                     String json = new Gson().toJson(events);
-                                    kafkaProducer.send(new ProducerRecord<>(Kafka.TOPIC_DATA_SECTION,
-                                            kafkaRecordId,
-                                            json
-                                    ), new KafkaCallBack(System.currentTimeMillis(), kafkaRecordId, events, Event_Type.RECOVERED_DATA_SECTION));
-                                    kafkaRecordId++;
+                                    long id = SimulatorController.getNextKafkaRecordId();
+                                    if (SimulatorController.kafkaProducerPerSmartDriver) {
+                                        smartDriverKafkaProducer.send(new ProducerRecord<>(Kafka.TOPIC_DATA_SECTION,
+                                                smartDriverKafkaRecordId,
+                                                json
+                                        ), new KafkaCallBack(System.currentTimeMillis(), smartDriverKafkaRecordId, events, Event_Type.RECOVERED_DATA_SECTION));
+                                        smartDriverKafkaRecordId++;
+                                    } else {
+                                        SimulatorController.getKafkaProducer().send(new ProducerRecord<>(Kafka.TOPIC_DATA_SECTION,
+                                                id,
+                                                json
+                                        ), new KafkaCallBack(System.currentTimeMillis(), id, events, Event_Type.RECOVERED_DATA_SECTION));
+                                    }
                                 } catch (Exception ex) {
                                     LOG.log(Level.SEVERE, "*Reintento* - Error: {0} - No se han podido reenviar los {1} 'Data Section' pendientes", new Object[]{ex.getMessage(), pendingDataSections.size()});
                                     SimulatorController.logCurrentStatus();
@@ -543,10 +570,7 @@ public class SimulatedSmartDriver implements Runnable, ISimulatedSmartDriverObse
     }
 
     private void stressForDeviation(double bearingDiff) {
-        // TODO: ¿Tener en cuenta la velocidad? 
-        // http://www.causadirecta.com/especial/centro-de-calculo/calculo-de-la-velocidad-critica-de-una-curva
-        // https://doblevia.wordpress.com/2007/03/19/curvas-circulares-simples/
-        // FIXME: ¿Graduación del estrés por el cambio de trayectoria?
+        // Graduación del estrés por el cambio de trayectoria
         if (bearingDiff < 25.0d) {
             // Es un tramo 'fácil'.
             if (stressLoad > 0) {
@@ -568,7 +592,7 @@ public class SimulatedSmartDriver implements Runnable, ISimulatedSmartDriverObse
     }
 
     private void stressForSpeed(double speedDiff) {
-        // FIXME: ¿Graduación del estrés por la velocidad?
+        // Graduación del estrés por cambios de la velocidad
         if (speedDiff < 30.0d) {
             //  Es una variación de velocidad moderada.
             if (stressLoad > 0) {
@@ -620,11 +644,19 @@ public class SimulatedSmartDriver implements Runnable, ISimulatedSmartDriverObse
                 // Kafka
                 try {
                     String json = new Gson().toJson(event);
-                    kafkaProducer.send(new ProducerRecord<>(Kafka.TOPIC_VEHICLE_LOCATION,
-                            kafkaRecordId,
-                            json
-                    ), new KafkaCallBack(System.currentTimeMillis(), kafkaRecordId, new ExtendedEvent[]{event}, Event_Type.NORMAL_VEHICLE_LOCATION));
-                    kafkaRecordId++;
+                    long id = SimulatorController.getNextKafkaRecordId();
+                    if (SimulatorController.kafkaProducerPerSmartDriver) {
+                        smartDriverKafkaProducer.send(new ProducerRecord<>(Kafka.TOPIC_VEHICLE_LOCATION,
+                                smartDriverKafkaRecordId,
+                                json
+                        ), new KafkaCallBack(System.currentTimeMillis(), smartDriverKafkaRecordId, new ExtendedEvent[]{event}, Event_Type.NORMAL_VEHICLE_LOCATION));
+                        smartDriverKafkaRecordId++;
+                    } else {
+                        SimulatorController.getKafkaProducer().send(new ProducerRecord<>(Kafka.TOPIC_VEHICLE_LOCATION,
+                                id,
+                                json
+                        ), new KafkaCallBack(System.currentTimeMillis(), id, new ExtendedEvent[]{event}, Event_Type.NORMAL_VEHICLE_LOCATION));
+                    }
                 } catch (Exception ex) {
                     if (!finished) {
                         SimulatorController.increaseErrors();
@@ -632,7 +664,7 @@ public class SimulatedSmartDriver implements Runnable, ISimulatedSmartDriverObse
                             // Si ha fallado, almacenamos el 'Vehicle Location' que se debería haber enviado y lo intentamos luego.
                             pendingVehicleLocations.add(event);
                         }
-                        LOG.log(Level.SEVERE, "sendEvery10SecondsIfLocationChanged() - Error desconocido: {0} - Trama: {1} - Enviada a las: {2}", new Object[]{ex.getMessage(), Constants.dfISO8601.format(currentLocationLogDetail.getTimeLog()), Constants.dfISO8601.format(System.currentTimeMillis())});
+                        LOG.log(Level.SEVERE, "sendEvery10SecondsIfLocationChanged() - Error desconocido: {0}", ex.getMessage());
                         SimulatorController.logCurrentStatus();
                     }
                 } finally {
@@ -657,7 +689,7 @@ public class SimulatedSmartDriver implements Runnable, ISimulatedSmartDriverObse
                             // Si ha fallado, almacenamos el 'Vehicle Location' que se debería haber enviado y lo intentamos luego.
                             pendingVehicleLocations.add(event);
                         }
-                        LOG.log(Level.SEVERE, "sendEvery10SecondsIfLocationChanged() - Error SEND (Not OK): Trama: {0} - Enviada a las: {1}", new Object[]{Constants.dfISO8601.format(currentLocationLogDetail.getTimeLog()), Constants.dfISO8601.format(System.currentTimeMillis())});
+                        LOG.log(Level.SEVERE, "sendEvery10SecondsIfLocationChanged() - Error SEND (Not OK)");
                         SimulatorController.logCurrentStatus();
                         reconnectPublisher();
                     }
@@ -670,7 +702,7 @@ public class SimulatedSmartDriver implements Runnable, ISimulatedSmartDriverObse
                             // Si ha fallado, almacenamos el 'Vehicle Location' que se debería haber enviado y lo intentamos luego.
                             pendingVehicleLocations.add(event);
                         }
-                        LOG.log(Level.SEVERE, "sendEvery10SecondsIfLocationChanged() - Error I/O: {0} - Trama: {1} - Enviada a las: {2}", new Object[]{ex.getMessage(), Constants.dfISO8601.format(currentLocationLogDetail.getTimeLog()), Constants.dfISO8601.format(System.currentTimeMillis())});
+                        LOG.log(Level.SEVERE, "sendEvery10SecondsIfLocationChanged() - Error I/O: {0}", ex.getMessage());
                         SimulatorController.logCurrentStatus();
                         reconnectPublisher();
                     }
@@ -681,7 +713,7 @@ public class SimulatedSmartDriver implements Runnable, ISimulatedSmartDriverObse
                             // Si ha fallado, almacenamos el 'Vehicle Location' que se debería haber enviado y lo intentamos luego.
                             pendingVehicleLocations.add(event);
                         }
-                        LOG.log(Level.SEVERE, "sendEvery10SecondsIfLocationChanged() - Error desconocido: {0} - Trama: {1} - Enviada a las: {2}", new Object[]{ex.getMessage(), Constants.dfISO8601.format(currentLocationLogDetail.getTimeLog()), Constants.dfISO8601.format(System.currentTimeMillis())});
+                        LOG.log(Level.SEVERE, "sendEvery10SecondsIfLocationChanged() - Error desconocido: {0}", ex.getMessage());
                         SimulatorController.logCurrentStatus();
                         reconnectPublisher();
                     }
@@ -771,11 +803,19 @@ public class SimulatedSmartDriver implements Runnable, ISimulatedSmartDriverObse
                 // Kafka
                 try {
                     String json = new Gson().toJson(event);
-                    kafkaProducer.send(new ProducerRecord<>(Kafka.TOPIC_DATA_SECTION,
-                            kafkaRecordId,
-                            json
-                    ), new KafkaCallBack(System.currentTimeMillis(), kafkaRecordId, new ExtendedEvent[]{event}, Event_Type.NORMAL_DATA_SECTION));
-                    kafkaRecordId++;
+                    long id = SimulatorController.getNextKafkaRecordId();
+                    if (SimulatorController.kafkaProducerPerSmartDriver) {
+                        smartDriverKafkaProducer.send(new ProducerRecord<>(Kafka.TOPIC_DATA_SECTION,
+                                smartDriverKafkaRecordId,
+                                json
+                        ), new KafkaCallBack(System.currentTimeMillis(), smartDriverKafkaRecordId, new ExtendedEvent[]{event}, Event_Type.NORMAL_DATA_SECTION));
+                        smartDriverKafkaRecordId++;
+                    } else {
+                        SimulatorController.getKafkaProducer().send(new ProducerRecord<>(Kafka.TOPIC_DATA_SECTION,
+                                id,
+                                json
+                        ), new KafkaCallBack(System.currentTimeMillis(), id, new ExtendedEvent[]{event}, Event_Type.NORMAL_DATA_SECTION));
+                    }
                 } catch (Exception ex) {
                     if (!finished) {
                         SimulatorController.increaseErrors();
@@ -865,33 +905,12 @@ public class SimulatedSmartDriver implements Runnable, ISimulatedSmartDriverObse
     private void reconnectPublisher() {
         publisher.close();
         try {
-            this.publisher = new PublisherHC(new URL(ZTREAMY_URL), new JSONSerializer());
+            this.publisher = new PublisherHC(new URL(SimulatorController.ZTREAMY_URL), new JSONSerializer());
         } catch (MalformedURLException e) {
             // No puede pasar, porque habría pasado también en el constructor
             // y no lo ha hecho.
         }
         LOG.log(Level.FINE, "reconnectPublisher() - Publisher reconnected");
-    }
-
-    private void saveGoogleStreetViewImages(LocationLogDetail lld, double bearing) {
-        String coordinates = lld.getLatitude() + "," + lld.getLongitude();
-        try {
-            SaveImageFromURL.savePngImage("https://maps.googleapis.com/maps/api/streetview?size=640x400&location=" + coordinates + "&heading=" + (Math.round(bearing) - 45) + "&pitch=0&fov=80", coordinates + "_left", SimulatorController.getGoogleStreetViewPhotosFolder());
-            SaveImageFromURL.savePngImage("https://maps.googleapis.com/maps/api/streetview?size=640x400&location=" + coordinates + "&heading=" + Math.round(bearing) + "&pitch=0&fov=80", coordinates + "_center", SimulatorController.getGoogleStreetViewPhotosFolder());
-            SaveImageFromURL.savePngImage("https://maps.googleapis.com/maps/api/streetview?size=640x400&location=" + coordinates + "&heading=" + (Math.round(bearing) + 45) + "&pitch=0&fov=80", coordinates + "_right", SimulatorController.getGoogleStreetViewPhotosFolder());
-        } catch (IOException ex) {
-            LOG.log(Level.SEVERE, "saveGoogleStreetViewImages() - Error al obtener las imágenes de la posición (" + coordinates + ") de Google Street View", ex);
-        }
-    }
-
-    private void analyzeGoogleStreetViewImages() {
-        for (final File fileEntry : SimulatorController.getGoogleStreetViewPhotosFolder().listFiles()) {
-            try {
-                Util.getRedChannel(fileEntry);
-            } catch (Exception ex) {
-                LOG.log(Level.SEVERE, "analyzeGoogleStreetViewImages() - Error al analizar la imagen de Google Street View: " + fileEntry.getName(), ex);
-            }
-        }
     }
 
     @Override
@@ -901,16 +920,18 @@ public class SimulatedSmartDriver implements Runnable, ISimulatedSmartDriverObse
     }
 
     public void finish() {
-        this.finished = true;
+        finished = true;
         try {
-            // Si tuviera un 'producer' de Kafka, lo cerramos.
-            if (this.kafkaProducer != null) {
-                this.kafkaProducer.flush();
-                this.kafkaProducer.close();
+            if (SimulatorController.kafkaProducerPerSmartDriver) {
+                // Si tuviera un 'producer' de Kafka, lo cerramos.
+                if (smartDriverKafkaProducer != null) {
+                    smartDriverKafkaProducer.flush();
+                    smartDriverKafkaProducer.close();
+                }
             }
             // Si tuviera un 'publisher' de Ztreamy, lo cerramos.
-            if (this.publisher != null) {
-                this.publisher.close();
+            if (publisher != null) {
+                publisher.close();
             }
         } catch (Exception ex) {;
         } finally {
@@ -922,6 +943,8 @@ public class SimulatedSmartDriver implements Runnable, ISimulatedSmartDriverObse
                 File statusFile = new File(SimulatorController.getTempFolder().toUri().getPath(), statusFileNameCSV);
                 createStatusDataFile(CsvPreference.EXCEL_NORTH_EUROPE_PREFERENCE, false, statusFile);
             }
+//            Thread.currentThread().interrupt();
+            return;
         }
     }
 
@@ -1009,7 +1032,7 @@ public class SimulatedSmartDriver implements Runnable, ISimulatedSmartDriverObse
 
                 if (monitorize) {
                     // Registramos el estado del SmartDriver.
-                    csvStatusList.add(new CSVSmartDriverStatus(id, new Date().getTime(), currentDelay, metadata.serializedValueSize()));
+                    csvStatusList.add(new CSVSmartDriverStatus(id, System.currentTimeMillis(), currentDelay, metadata.serializedValueSize()));
                 }
 
                 LOG.log(Level.FINE, "onCompletion() - Mensaje recibido correctamente en Kafka\n - Key: {0}\n - Número de eventos: {1}\n - Partición: {2}\n - Offset: {3}\n - Tiempo transcurrido: {4} ms", new Object[]{key, events.length, metadata.partition(), metadata.offset(), currentDelay});
