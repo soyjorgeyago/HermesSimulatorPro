@@ -936,7 +936,7 @@ public class SimulatedSmartDriver implements Runnable, ISimulatedSmartDriverObse
             if (publisher != null) {
                 publisher.close();
             }
-        } catch (Exception ex) {;
+        } catch (Exception ex) {
         } finally {
             if (monitorize) {
                 // Creamos un archivo temporal para el CSV con la información del SmartDriver.

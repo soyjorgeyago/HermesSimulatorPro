@@ -3,7 +3,6 @@ package es.us.lsi.hermes.location.detail;
 import es.us.lsi.hermes.location.LocationLog;
 import es.us.lsi.hermes.util.Constants;
 import java.io.Serializable;
-import java.util.Date;
 import java.util.ResourceBundle;
 
 public class LocationLogDetail implements Serializable {

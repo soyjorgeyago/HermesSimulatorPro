@@ -17,7 +17,7 @@ public class SurroundingVehiclesConsumer extends ShutdownableThread {
     private static final Logger LOG = Logger.getLogger(SurroundingVehiclesConsumer.class.getName());
     public static final String TOPIC_SURROUNDING_VEHICLES = "SurroundingVehicles";
 
-    private KafkaConsumer<String, String> kafkaConsumer;
+    private final KafkaConsumer<String, String> kafkaConsumer;
     private final long pollTimeout;
 //    private final String sourceId;
     private final ISimulatorControllerObserver observer;

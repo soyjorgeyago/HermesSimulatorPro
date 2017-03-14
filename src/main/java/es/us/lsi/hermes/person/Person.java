@@ -1,8 +1,6 @@
 package es.us.lsi.hermes.person;
 
-import es.us.lsi.hermes.location.LocationLog;
 import java.io.Serializable;
-import java.util.List;
 import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.codec.digest.DigestUtils;
 
